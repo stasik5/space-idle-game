@@ -354,6 +354,7 @@ function clickPlanet() {
     }
 
     updateDisplay();
+    // Force immediate render on clicks for responsiveness
     renderUpgrades();
     renderGenerators();
     checkAchievements();
@@ -368,6 +369,7 @@ function buyUpgrade(id) {
         gameState.upgrades[id] = level + 1;
         upgradesConfig[id].apply();
         updateDisplay();
+        // Force immediate render
         renderUpgrades();
         renderGenerators();
         checkAchievements();
@@ -382,6 +384,7 @@ function buyGenerator(id) {
         gameState.generators[id] = (gameState.generators[id] || 0) + 1;
         calculatePerSecond();
         updateDisplay();
+        // Force immediate render
         renderUpgrades();
         renderGenerators();
         checkAchievements();
@@ -450,14 +453,21 @@ function gameLoop() {
     }
 
     updateDisplay();
-    renderUpgrades();
-    renderGenerators();
+
+    // Re-render less frequently to avoid DOM thrashing
+    const now = Date.now();
+    if (!gameState.lastRender || now - gameState.lastRender > 500) {
+        renderUpgrades();
+        renderGenerators();
+        gameState.lastRender = now;
+    }
+
     checkAchievements();
 
     // Auto-save every 60 seconds
-    if (Date.now() - gameState.lastSave > 60000) {
+    if (now - gameState.lastSave > 60000) {
         saveGame();
-        gameState.lastSave = Date.now();
+        gameState.lastSave = now;
     }
 }
 
