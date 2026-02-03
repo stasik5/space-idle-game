@@ -234,6 +234,10 @@ function getPrestigeGain() {
     return available;
 }
 
+// Store card references for updates
+const upgradeCards = {};
+const generatorCards = {};
+
 // UI Updates
 function updateDisplay() {
     starsEl.textContent = formatNumber(gameState.stars);
@@ -246,9 +250,48 @@ function updateDisplay() {
     cpBonusEl.textContent = getCpMultiplier().toFixed(2);
 
     btnPrestige.disabled = availableCp <= 0;
+
+    // Update card states without recreating DOM
+    updateCards();
+}
+
+function updateCards() {
+    // Update upgrade cards
+    for (const [id, config] of Object.entries(upgradesConfig)) {
+        const card = upgradeCards[id];
+        if (card) {
+            const level = gameState.upgrades[id] || 0;
+            const cost = getUpgradeCost(id);
+            const canAfford = gameState.stars >= cost;
+            const isMaxed = level >= 10;
+
+            card.countEl.textContent = `${level}/10`;
+            card.costEl.textContent = isMaxed ? 'MAXED' : formatNumber(cost) + ' stars';
+            card.disabled = !canAfford || isMaxed;
+        }
+    }
+
+    // Update generator cards
+    for (const [id, config] of Object.entries(generatorsConfig)) {
+        const card = generatorCards[id];
+        if (card) {
+            const count = gameState.generators[id] || 0;
+            const cost = getGeneratorCost(id);
+            const production = getGeneratorProduction(id);
+            const canAfford = gameState.stars >= cost;
+
+            card.countEl.textContent = count;
+            card.costEl.textContent = formatNumber(cost) + ' stars';
+            card.productionEl.textContent = `Current: ${formatNumber(production)}/sec`;
+            card.disabled = !canAfford;
+        }
+    }
 }
 
 function renderUpgrades() {
+    // Only render if not already rendered
+    if (Object.keys(upgradeCards).length > 0) return;
+
     upgradesGrid.innerHTML = '';
     for (const [id, config] of Object.entries(upgradesConfig)) {
         const level = gameState.upgrades[id] || 0;
@@ -262,22 +305,36 @@ function renderUpgrades() {
         card.innerHTML = `
             <div class="card-header">
                 <span class="card-icon">${config.icon}</span>
-                <span class="card-count">${level}/10</span>
+                <span class="card-count"></span>
             </div>
             <div class="card-name">${config.name}</div>
-            <div class="card-cost">${isMaxed ? 'MAXED' : formatNumber(cost) + ' stars'}</div>
+            <div class="card-cost"></div>
             <div class="card-description">${config.effect}</div>
         `;
 
-        if (!isMaxed && canAfford) {
-            card.onclick = () => buyUpgrade(id);
-        }
+        // Store element references
+        upgradeCards[id] = {
+            element: card,
+            countEl: card.querySelector('.card-count'),
+            costEl: card.querySelector('.card-cost'),
+            config: config,
+            id: id
+        };
+
+        // Set initial values
+        upgradeCards[id].countEl.textContent = `${level}/10`;
+        upgradeCards[id].costEl.textContent = isMaxed ? 'MAXED' : formatNumber(cost) + ' stars';
+
+        card.onclick = () => buyUpgrade(id);
 
         upgradesGrid.appendChild(card);
     }
 }
 
 function renderGenerators() {
+    // Only render if not already rendered
+    if (Object.keys(generatorCards).length > 0) return;
+
     generatorsGrid.innerHTML = '';
     for (const [id, config] of Object.entries(generatorsConfig)) {
         const count = gameState.generators[id] || 0;
@@ -291,17 +348,30 @@ function renderGenerators() {
         card.innerHTML = `
             <div class="card-header">
                 <span class="card-icon">${config.icon}</span>
-                <span class="card-count">${count}</span>
+                <span class="card-count"></span>
             </div>
             <div class="card-name">${config.name}</div>
-            <div class="card-cost">${formatNumber(cost)} stars</div>
+            <div class="card-cost"></div>
             <div class="card-description">${config.effect}</div>
-            <div class="card-effect">Current: ${formatNumber(production)}/sec</div>
+            <div class="card-effect"></div>
         `;
 
-        if (canAfford) {
-            card.onclick = () => buyGenerator(id);
-        }
+        // Store element references
+        generatorCards[id] = {
+            element: card,
+            countEl: card.querySelector('.card-count'),
+            costEl: card.querySelector('.card-cost'),
+            productionEl: card.querySelector('.card-effect'),
+            config: config,
+            id: id
+        };
+
+        // Set initial values
+        generatorCards[id].countEl.textContent = count;
+        generatorCards[id].costEl.textContent = formatNumber(cost) + ' stars';
+        generatorCards[id].productionEl.textContent = `Current: ${formatNumber(production)}/sec`;
+
+        card.onclick = () => buyGenerator(id);
 
         generatorsGrid.appendChild(card);
     }
@@ -354,9 +424,6 @@ function clickPlanet() {
     }
 
     updateDisplay();
-    // Force immediate render on clicks for responsiveness
-    renderUpgrades();
-    renderGenerators();
     checkAchievements();
 }
 
@@ -369,9 +436,6 @@ function buyUpgrade(id) {
         gameState.upgrades[id] = level + 1;
         upgradesConfig[id].apply();
         updateDisplay();
-        // Force immediate render
-        renderUpgrades();
-        renderGenerators();
         checkAchievements();
     }
 }
@@ -384,9 +448,6 @@ function buyGenerator(id) {
         gameState.generators[id] = (gameState.generators[id] || 0) + 1;
         calculatePerSecond();
         updateDisplay();
-        // Force immediate render
-        renderUpgrades();
-        renderGenerators();
         checkAchievements();
     }
 }
@@ -402,10 +463,17 @@ function prestige() {
         gameState.clickPower = 1;
         gameState.upgrades = {};
         gameState.generators = {};
+
+        // Re-initialize upgrade and generator levels
+        for (const id in upgradesConfig) {
+            gameState.upgrades[id] = 0;
+        }
+        for (const id in generatorsConfig) {
+            gameState.generators[id] = 0;
+        }
+
         calculatePerSecond();
         updateDisplay();
-        renderUpgrades();
-        renderGenerators();
         checkAchievements();
         saveGame();
     }
@@ -427,8 +495,7 @@ function loadGame() {
         gameState = JSON.parse(saveString);
         calculatePerSecond();
         updateDisplay();
-        renderUpgrades();
-        renderGenerators();
+        // Only render achievements (they don't update frequently)
         renderAchievements();
         saveStatusEl.textContent = 'Loaded!';
         setTimeout(() => {
@@ -453,18 +520,10 @@ function gameLoop() {
     }
 
     updateDisplay();
-
-    // Re-render less frequently to avoid DOM thrashing
-    const now = Date.now();
-    if (!gameState.lastRender || now - gameState.lastRender > 500) {
-        renderUpgrades();
-        renderGenerators();
-        gameState.lastRender = now;
-    }
-
     checkAchievements();
 
     // Auto-save every 60 seconds
+    const now = Date.now();
     if (now - gameState.lastSave > 60000) {
         saveGame();
         gameState.lastSave = now;
@@ -508,6 +567,8 @@ function init() {
     loadGame();
 
     updateDisplay();
+
+    // Render once on startup
     renderUpgrades();
     renderGenerators();
     renderAchievements();
